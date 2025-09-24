@@ -1,0 +1,406 @@
+import { memo, useEffect } from "react"
+import { useForm } from "react-hook-form"
+import { yupResolver } from "@hookform/resolvers/yup"
+import { DatePicker } from "@/components/common/Datepicker"
+import { Form } from "@/components/ui/form"
+import { Button } from "@/components/ui/button"
+import FormField from "@/components/form/FormField"
+import { Separator } from "@/components/ui/separator"
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import { Loader2 } from "lucide-react"
+import { FormTabs } from "@/components/form/FormTabs"
+import { FormModulePermissions } from "@/components/form/FormModulePermissions"
+import FormVariations from "@/components/forms/FormVariations"
+import FormDropdown from "@/components/form/FormDropdown"
+import Richtext from "@/components/common/Fields/Richtext"
+import TagsField from "@/components/common/Fields/Tags"
+import SelectField from "@/components/common/Fields/SelectField"
+import SwitchField from "@/components/common/Fields/SwitchField"
+import ImagesField from "@/components/common/Fields/ImagesField"
+import { useState } from "react"
+import AttachmentPopup from "@/components/common/AttachmentPopup"
+import { BACKEND_URL } from "@/config"
+import ComboBox from "@/components/form/ComboBox"
+import FormDynamicRows from "@/components/common/Fields/FormDynamicRows"
+import HeaderText from "@/components/common/Fields/HeaderText"
+import MultipleSelect from "@/components/common/MultipleSelect"
+import FormRadio from "@/components/form/FormRadio"
+import PlanPricing from "@/components/common/Fields/PlanPricing"
+import AlertField from "@/components/common/Fields/AlertField"
+import ApiTester from "@/components/common/Fields/ApiTester"
+import FormCascader from "@/components/form/FormCascader"
+import DatePickerV2 from "@/components/common/DatepickerV2"
+
+const MainForm = ({ 
+  fields = [],
+  tabs,
+  onSubmit,
+  isLoading,
+  defaultValues = {},
+  onCancel,
+  title,
+  description,
+  mode = "create",
+  schema,
+  existingImages = [],
+  attachmentsEndpoint = "",
+  entityType = "",
+  entityId = ""
+}) => {
+  const form = useForm({
+    defaultValues,
+    resolver: schema && yupResolver(schema),
+  })
+
+  const watchedValues = form.watch();
+  // Add state for attachment popup
+  const [attachmentPopupOpen, setAttachmentPopupOpen] = useState(false)
+  const [currentImageField, setCurrentImageField] = useState(null)
+  
+  // Function to open attachment popup
+  const openAttachmentPopup = (field) => {
+    setCurrentImageField(field)
+    setAttachmentPopupOpen(true)
+  }
+  
+  // Function to handle image selection from popup
+  const handleImageSelection = (images) => {
+    if (currentImageField) {
+      // Handle both multiple and single image selection
+      form.setValue(currentImageField.name, images)
+    }
+  }
+  
+  // Function to handle image deletion
+  const handleDeleteImage = (fieldName, imageIndex) => {
+    const currentImages = form.getValues(fieldName) || []
+    const updatedImages = currentImages.filter((img) => img?.original_url !== imageIndex)
+    
+    form.setValue(fieldName, updatedImages, {
+      shouldValidate: true,
+      shouldDirty: true
+    })
+  }
+  
+  // Get image source helper function
+  const getImageSource = (file) => {
+    if (file.isNew && file.preview) {
+      return file.preview
+    }
+    
+    if (file.image_url) {
+      return `${BACKEND_URL}${file.image_url}`
+    }
+
+    return null
+  }
+
+  const handleVariationData = (value, field) => {
+    form.setValue(field.name, value)
+  }
+
+  const renderRowField = (field, index) => {
+    switch (field.type) {
+      case 'richtext':
+        return <Richtext field={field} form={form} />
+      case 'tags':
+        return <TagsField field={field} form={form} />
+      case 'select':
+        return <SelectField field={field} form={form} />
+      
+      case 'switch':
+        return <SwitchField field={field} form={form} />
+      
+      case 'modulePermissions':
+        return (
+          <FormModulePermissions
+            key={field.name}
+            form={form}
+            field={{
+              name: field.name,
+              label: field.label,
+              required: field.required
+            }}
+          />
+        )
+      
+      case 'separator':
+        return (
+          <Separator className={field.className} />
+        )
+
+      case 'datepicker':
+        return (
+          <div key={field.name} className="space-y-2">
+            <DatePicker
+              name={field.name}
+              control={form.control}
+              label={field.label}
+              placeholder={field.placeholder}
+              required={field.required}
+            />
+          </div>
+        )
+
+      case 'datepickerV2':
+        return (
+          <div key={field.name} className="space-y-2">
+            <DatePickerV2
+              name={field.name}
+              control={form.control}
+              label={field.label}
+              placeholder={field.placeholder}
+              description={field.description}
+              required={field.required}
+              showTime={field.showTime}
+              disabled={field.disabled}
+            />
+          </div>
+        )
+      
+      case 'FormVariations':
+        return (
+          <div key={field.name} className="space-y-2">
+            <div className="flex items-center">
+              <label className="text-sm font-medium">{field.label}</label>
+              {field.required && <RequiredIndicator />}
+            </div>
+            {field.description && (
+              <p className="text-sm text-muted-foreground">
+                {field.description}
+              </p>
+            )}
+            <FormVariations
+              value={form.watch(field.name) || []}
+              onChange={(value) => handleVariationData(value, field)}
+              attributes={field.attributes}
+              required={field.required}
+            />
+            {form.formState.errors[field.name] && (
+              <p className="text-sm text-destructive">
+                {form.formState.errors[field.name].message}
+              </p>
+            )}
+          </div>
+        )
+      
+      case "dropdown":
+        return (
+          <FormDropdown
+            key={field.name}
+            control={form.control}
+            name={field.name}
+            label={field.label}
+            placeholder={field.placeholder}
+            description={field.description}
+            options={field.options}
+            required={field.required}
+            readOnly={field.readOnly}
+            onChange={(e) => {
+              if (field.onChange) {
+                field.onChange(e, form)
+              }
+            }}
+          />
+        )
+      
+      case "images":
+        return (
+          <ImagesField
+            field={field}
+            form={form}
+            openAttachmentPopup={openAttachmentPopup}
+            handleDeleteImage={handleDeleteImage}
+          />
+        )
+      
+      case "comboBox":
+        return (
+          <ComboBox field={field} form={form} />
+        )
+      
+      case "dynamic_rows":
+        return (
+          <FormDynamicRows field={field} form={form} renderRowField={renderRowField} />
+        )
+
+      case "header_text":
+          return (
+            <HeaderText label={field.label} description={field.description} />
+          )
+          
+      case "multipleSelect":
+        return (
+          <MultipleSelect field={field} form={form} />
+        )
+
+      case "radio":
+        return (
+          <FormRadio
+            key={field.name}
+            control={form.control}
+            field={field}
+            form={form}
+          />
+        )
+
+      case "plan_pricing":
+        return (
+          <PlanPricing
+            key={field.name}
+            field={field}
+            form={form}
+          />
+        )
+
+      case "alert":
+        return (
+          <AlertField
+            key={field.name || `alert-${index}`}
+            field={field}
+          />
+        )
+
+      case "api_tester":
+        return (
+          <ApiTester
+            key={field.name || `api-tester-${index}`}
+            field={field}
+            form={form}
+          />
+        )
+
+      case "cascader":
+        return (
+          <FormCascader
+            key={field.name}
+            field={field}
+            form={form}
+          />
+        )
+
+      default:
+        return (
+          <FormField
+            form={form}
+            key={field.name}
+            control={form.control}
+            name={field.name}
+            label={field.label}
+            placeholder={field.placeholder}
+            type={field.type}
+            disabled={field.disabled}
+            required={field.required}
+            description={field?.description}
+            readOnly={field?.readOnly}
+            field={field}
+            onChange={(e) => {
+              if (field.onChange) {
+                field.onChange(e, form)
+              }
+            }}
+          />
+        )
+    }
+  }
+
+  const renderField = (field) => {
+    if (field?.visibleWhen && !field?.visibleWhen(watchedValues)) {
+      return null;
+    }
+
+    if (field?.type === 'row_field') {
+      const visibleFields = field?.fields?.filter((field) => {
+        if (field?.visibleWhen && !field?.visibleWhen(watchedValues)) {
+          return false;
+        }
+        return true;
+      })
+      return (
+        <div className={`grid grid-cols-1 md:grid-cols-${visibleFields?.length} gap-4`}>
+          {visibleFields?.map((field, index) => {
+            if (field?.visibleWhen && !field?.visibleWhen(watchedValues)) {
+              return null;
+            }
+            return renderField(field, index)
+          })}
+        </div>
+      )
+    }
+
+    return renderRowField(field);
+  }
+
+  const renderFields = (fields, index) => {
+    return (
+      <div className="space-y-4" key={index}>
+        {fields?.map(renderField)}
+      </div>
+    )
+  }
+
+  return (
+    <Card className="max-w-4xl mx-auto">
+      <CardHeader>
+        <HeaderText label={title} description={description} />
+      </CardHeader>
+      <CardContent style={{ borderTop: '1px solid #e9e9e9', paddingTop: '30px' }}>
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+            {tabs ? (
+              <FormTabs tabs={tabs}>
+                {tabs.map((tab, index) => renderFields(tab.fields, index))}
+              </FormTabs>
+            ) : (
+              renderFields(fields)
+            )}
+            
+            <div className="flex justify-end gap-4">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={onCancel}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={isLoading}>
+                {isLoading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    {mode === "edit" ? "Updating..." : "Creating..."}
+                  </>
+                ) : (
+                  `${mode === "edit" ? "Update" : "Create"}`
+                )}
+              </Button>
+            </div>
+          </form>
+        </Form>
+        {/* Attachment Popup */}
+        {currentImageField && (
+          <AttachmentPopup
+            open={attachmentPopupOpen}
+            onOpenChange={setAttachmentPopupOpen}
+            title={`Manage ${currentImageField.label || 'Files'}`}
+            value={form.watch(currentImageField.name) || []}
+            onChange={handleImageSelection}
+            maxFiles={currentImageField.maxFiles || 5}
+            maxSize={currentImageField.maxSize || 5242880}
+            accept={currentImageField.accept || {
+              'image/*': ['.png', '.jpg', '.jpeg', '.gif'],
+              'application/zip': ['.zip']
+            }}
+            multiple={currentImageField.multiple !== false}
+            existingImages={existingImages}
+            apiEndpoint={currentImageField.apiEndpoint || attachmentsEndpoint}
+            entityType={currentImageField.entityType || entityType}
+            entityId={currentImageField.entityId || entityId}
+            fileType={currentImageField.fileType || 'image'}
+          />
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+export default memo(MainForm) 
